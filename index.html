@@ -72,6 +72,7 @@ button{font:inherit;cursor:pointer}
 .qid{font-variant-numeric:tabular-nums;font-weight:600;letter-spacing:.02em}
 .key{color:var(--star);font-weight:700}
 .tick{margin-left:auto;color:var(--ok);font-weight:700;font-size:12px}
+.tick.pending{color:var(--muted)}
 .qt{font-size:16px;font-weight:600;line-height:1.4;margin:0}
 .what{margin:0;color:var(--ink)}
 .note{margin:0;font-size:13px;color:var(--muted);font-style:italic}
@@ -102,7 +103,7 @@ textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(
 .msg{font-size:13px;color:var(--ok);font-weight:600}
 details summary{cursor:pointer;color:var(--brand);font-size:14px}
 @media (prefers-reduced-motion: reduce){.fill{transition:none}}
-@media (max-width:520px){.intro h1{font-size:25px}.save-state{display:none}}
+@media (max-width:520px){.intro h1{font-size:25px}.save-state{order:5;width:100%}}
 </style>
 
 <div class="bar">
@@ -168,9 +169,18 @@ const isDone = id => !!(ans[id] && ans[id].c);
 const SUBMIT_URL = "https://script.google.com/macros/s/AKfycbxN_zF4UDcGUJAyOS05bsKj_YDYsvVXaNRvz6rgojJrEpOGWarRSNZji3kWrV0mJmjAvw/exec";
 const LIVE = !!SUBMIT_URL;
 const SID = (() => { try { let s = localStorage.getItem(KEY + '-sid'); if (!s) { s = Math.random().toString(36).slice(2, 10); localStorage.setItem(KEY + '-sid', s); } return s; } catch (e) { return 'nostore'; } })();
-const pending = {}; let pTimer, inFlight = false;
+const pending = {}; let pTimer, inFlight = false, lastErr = false;
 const setState = t => { document.getElementById('saveState').textContent = t; };
-function queue(id) { if (!LIVE) return; pending[id] = 1; clearTimeout(pTimer); pTimer = setTimeout(flush, 700); }
+let conf = {}; try { conf = JSON.parse(localStorage.getItem(KEY + '-conf') || '{}') || {}; } catch (e) { conf = {}; }
+const sig = id => { const a = ans[id] || {}; return (a.c || '') + '\u0001' + (a.t || ''); };
+const isRecv = id => isDone(id) && conf[id] === sig(id);
+function recvCount() { return Object.keys(byId).filter(isRecv).length; }
+function showSync() {
+  if (!LIVE) return;
+  const n = Object.keys(byId).filter(isDone).length, r = recvCount(), wait = n - r;
+  setState(lastErr ? `⚠ ${r} of ${n} received · retrying` : wait > 0 ? `${r} of ${n} received · sending ${wait}…` : `✓ ${r} of ${n} received`);
+}
+function queue(id) { if (!LIVE) return; pending[id] = 1; clearTimeout(pTimer); pTimer = setTimeout(flush, 700); showSync(); }
 function rowFor(id) {
   const { item: i, sec: s } = byId[id]; const a = ans[id] || {};
   return { id, section: s.label, question: i.q || i.name, choice: a.c || '', answer: s.kind === 'mcq' && /^[ABC]$/.test(a.c || '') ? i[a.c] : (a.c || ''), comment: a.t || '' };
@@ -178,10 +188,22 @@ function rowFor(id) {
 function flush() {
   if (inFlight) { pTimer = setTimeout(flush, 700); return; }
   const ids = Object.keys(pending); if (!ids.length) return;
-  ids.forEach(i => delete pending[i]); inFlight = true; setState('Sending…');
-  fetch(SUBMIT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ sid: SID, rows: ids.map(rowFor) }) })
-    .then(() => { inFlight = false; setState('Sent to the Cherie team'); },
-          () => { inFlight = false; ids.forEach(i => { pending[i] = 1; }); setState('No connection: will retry'); pTimer = setTimeout(flush, 5000); });
+  ids.forEach(i => delete pending[i]); inFlight = true;
+  const sent = {}; ids.forEach(i => { sent[i] = sig(i); });
+  const fail = () => { inFlight = false; lastErr = true; ids.forEach(i => { if (!(i in conf) || conf[i] !== sent[i]) pending[i] = 1; }); showSync(); pTimer = setTimeout(flush, 5000); };
+  fetch(SUBMIT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ sid: SID, rows: ids.map(rowFor) }) })
+    .then(r => r.json())
+    .then(d => {
+      if (!d || !d.ok || !Array.isArray(d.saved)) return fail();
+      d.saved.forEach(i => { if (sent[i] != null) conf[i] = sent[i]; });
+      try { localStorage.setItem(KEY + '-conf', JSON.stringify(conf)); } catch (e) {}
+      inFlight = false; lastErr = false;
+      ids.forEach(i => { if (conf[i] !== sig(i) && isDone(i)) pending[i] = 1; refreshCard(i); });
+      showSync(); renderTabs();
+      if (Object.keys(pending).length) pTimer = setTimeout(flush, 700);
+      const note = document.getElementById('liveNote');
+      if (note && !document.getElementById('sendSheet').hidden) { const n = Object.keys(byId).filter(isDone).length, r = recvCount(); note.textContent = r === n ? `All ${r} answers received by the Cherie team. Thank you, Carrie.` : `${r} of ${n} received so far…`; }
+    }, fail);
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(ans)); if (!LIVE) setState('Saved in this browser'); }
@@ -208,6 +230,8 @@ function cmtHTML(id, label) {
   return show ? `<textarea id="t-${id}" data-cmt="${id}" placeholder="${esc(label)}">${esc(a.t || '')}</textarea>`
               : `<button class="cmt-btn" type="button" data-addcmt="${id}">Add a comment</button>`;
 }
+function tickText(id) { return !LIVE ? '✓ Answered' : isRecv(id) ? '✓ Received' : 'Sending…'; }
+function tickHTML(id) { return isDone(id) ? `<span class="tick${LIVE && !isRecv(id) ? ' pending' : ''}">${tickText(id)}</span>` : ''; }
 function card(sec, i) {
   const done = isDone(i.id);
   let body = '';
@@ -215,13 +239,13 @@ function card(sec, i) {
     const placeholder = 'Tell us what you’d like, or add a comment';
     body = `<p class="qt">${esc(i.q)}</p>${i.note ? `<p class="note">${esc(i.note)}</p>` : ''}
       <div class="opts" role="radiogroup" aria-label="${esc(i.id)}">${optHTML(i.id, 'A', 'A', i.A, true)}${optHTML(i.id, 'B', 'B', i.B)}${i.C ? optHTML(i.id, 'C', 'C', i.C) : ''}${optHTML(i.id, 'Other', '…', 'Something else')}</div>${cmtHTML(i.id, placeholder)}`;
-    return `<article class="q${done ? ' answered' : ''}" data-q="${i.id}"><div class="meta"><span class="qid">${esc(i.id)}</span>${i.star ? '<span class="key">★ Key</span>' : ''}${i.screen ? `<span>${esc(i.screen)}</span>` : ''}${done ? '<span class="tick">✓ Answered</span>' : ''}</div>${body}</article>`;
+    return `<article class="q${done ? ' answered' : ''}" data-q="${i.id}"><div class="meta"><span class="qid">${esc(i.id)}</span>${i.star ? '<span class="key">★ Key</span>' : ''}${i.screen ? `<span>${esc(i.screen)}</span>` : ''}${tickHTML(i.id)}</div>${body}</article>`;
   }
   const opts = sec.kind === 'feature' ? i.opts : CONTENT_OPTS;
   const keys = ['1', '2', '3'];
   body = `<p class="qt">${esc(i.name)}</p><p class="what">${esc(i.what)}</p>
     <div class="opts row" role="radiogroup" aria-label="${esc(i.id)}">${opts.map((o, k) => optHTML(i.id, o, keys[k], o)).join('')}</div>${cmtHTML(i.id, sec.kind === 'content' ? 'When can you send it, or any notes' : 'Any notes')}`;
-  return `<article class="q${done ? ' answered' : ''}" data-q="${i.id}"><div class="meta"><span class="qid">${esc(i.id)}</span>${i.area ? `<span>${esc(i.area)}</span>` : ''}${i.screens ? `<span>Seen on ${esc(i.screens)}</span>` : ''}${done ? '<span class="tick">✓ Answered</span>' : ''}</div>${body}</article>`;
+  return `<article class="q${done ? ' answered' : ''}" data-q="${i.id}"><div class="meta"><span class="qid">${esc(i.id)}</span>${i.area ? `<span>${esc(i.area)}</span>` : ''}${i.screens ? `<span>Seen on ${esc(i.screens)}</span>` : ''}${tickHTML(i.id)}</div>${body}</article>`;
 }
 
 function renderSection() {
@@ -258,7 +282,8 @@ function refreshCard(id) {
   if (!el) return;
   const done = isDone(id); el.classList.toggle('answered', done);
   const meta = el.querySelector('.meta'); let t = meta.querySelector('.tick');
-  if (done && !t) meta.insertAdjacentHTML('beforeend', '<span class="tick">✓ Answered</span>');
+  if (done && !t) { meta.insertAdjacentHTML('beforeend', '<span class="tick"></span>'); t = meta.querySelector('.tick'); }
+  if (done) { t.textContent = tickText(id); t.classList.toggle('pending', LIVE && !isRecv(id)); }
   if (!done && t) t.remove();
 }
 
@@ -344,7 +369,6 @@ function doImport() {
 }
 
 if (LIVE) {
-  setState('Answers send automatically');
   document.getElementById('takeTime').textContent = 'You don’t need to finish in one go. Come back any time from the same link.';
   document.getElementById('storeWarn').innerHTML = '<b>Every answer reaches us automatically</b> the moment you pick it, so there’s nothing to submit. Stop whenever you like and carry on later from the same link.';
   document.getElementById('openSend').textContent = 'Submit';
@@ -355,9 +379,12 @@ if (LIVE) {
   document.getElementById('copyBtn').className = 'ghost';
   document.addEventListener('click', e => {
     if (!e.target.closest('#submitAll')) return;
-    Object.keys(ans).forEach(id => { pending[id] = 1; }); clearTimeout(pTimer); flush();
-    document.getElementById('liveNote').textContent = 'Thank you, Carrie. Your answers have been sent to the Cherie team.';
+    Object.keys(ans).filter(isDone).forEach(id => { pending[id] = 1; }); clearTimeout(pTimer);
+    document.getElementById('liveNote').textContent = 'Sending…'; flush();
   });
+  Object.keys(byId).filter(id => isDone(id) && !isRecv(id)).forEach(id => { pending[id] = 1; });
+  if (Object.keys(pending).length) pTimer = setTimeout(flush, 500);
+  showSync();
 } else if (!storeOK) {
   document.getElementById('saveState').textContent = 'Not saving: send before closing';
   document.getElementById('storeWarn').innerHTML = '<b>This browser isn’t keeping your answers</b> (it may be a private window). Before you close the page, press <b>Send answers</b> and paste the text into an email to Peter.';
