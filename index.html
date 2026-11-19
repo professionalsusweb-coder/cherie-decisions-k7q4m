@@ -46,7 +46,7 @@ button{font:inherit;cursor:pointer}
 .intro{padding-block:28px 8px;display:flex;flex-direction:column;gap:12px}
 .intro h1{font-size:30px;line-height:1.15}
 .intro p{margin:0;max-width:64ch;color:var(--ink)}
-.howto{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:6px}
+.howto{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;margin-top:6px}
 .howto div{background:var(--tint);border-radius:10px;padding:10px 12px;font-size:14px}
 .howto b{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--brand);margin-bottom:2px}
 .warn{background:var(--tint);border-left:3px solid var(--brand);padding:10px 12px;border-radius:6px;font-size:14px}
@@ -125,7 +125,7 @@ details summary{cursor:pointer;color:var(--brand);font-size:14px}
       <div><b>Our suggestion</b>Option A is what we'd recommend. If it sounds right, just pick it.</div>
       <div><b>Your call</b>Pick B or C, or choose "Something else" and tell us in your own words.</div>
       <div><b>Key questions</b>Marked ★. They shape the most screens, so they're listed first in each section.</div>
-      <div><b>Take your time</b>Answers save in this browser as you go. Come back whenever you like.</div>
+      <div><b>Take your time</b><span id="takeTime">Answers save in this browser as you go. Come back whenever you like.</span></div>
     </div>
     <p class="warn" id="storeWarn"><b>When you're done</b>, or want to send what you have so far, press <b>Send answers</b> at the top and paste the text into an email to Peter. We only see your answers once you send them.</p>
   </section>
@@ -345,6 +345,7 @@ function doImport() {
 
 if (LIVE) {
   setState('Answers send automatically');
+  document.getElementById('takeTime').textContent = 'You don’t need to finish in one go. Come back any time from the same link.';
   document.getElementById('storeWarn').innerHTML = '<b>Every answer reaches us automatically</b> the moment you pick it, so there’s nothing to submit. Stop whenever you like and carry on later from the same link.';
   document.getElementById('openSend').textContent = 'Submit';
   document.getElementById('sendTitle').textContent = 'Submit your answers';
