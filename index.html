@@ -165,7 +165,7 @@ try { const h = location.hash.slice(1); if (DATA.sections.some(s => s.key === h)
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const isDone = id => !!(ans[id] && ans[id].c);
-const SUBMIT_URL = /*SUBMIT*/'';
+const SUBMIT_URL = "https://script.google.com/macros/s/AKfycbxN_zF4UDcGUJAyOS05bsKj_YDYsvVXaNRvz6rgojJrEpOGWarRSNZji3kWrV0mJmjAvw/exec";
 const LIVE = !!SUBMIT_URL;
 const SID = (() => { try { let s = localStorage.getItem(KEY + '-sid'); if (!s) { s = Math.random().toString(36).slice(2, 10); localStorage.setItem(KEY + '-sid', s); } return s; } catch (e) { return 'nostore'; } })();
 const pending = {}; let pTimer, inFlight = false;
